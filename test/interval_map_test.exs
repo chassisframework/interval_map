@@ -38,7 +38,7 @@ defmodule IntervalMapTest do
 
   describe "get/2 + key_member?/2" do
     property "finds the correct interval in a contiguous map" do
-      forall {map, left..right} <- contiguous_interval_map() do
+      forall {map, left..right//1} <- contiguous_interval_map() do
         forall key <- range(left+1, right) do
           %Interval{left: found_left, right: found_right} = IntervalMap.get(map, key)
 
@@ -50,7 +50,7 @@ defmodule IntervalMapTest do
     end
 
     property "returns :not_found when the key doesn't lie inside an interval" do
-      forall {map, left..right} <- contiguous_interval_map() do
+      forall {map, left..right//1} <- contiguous_interval_map() do
         forall key <- range(:inf, left) do
           refute IntervalMap.key_member?(map, key)
 
@@ -140,7 +140,7 @@ defmodule IntervalMapTest do
 
   describe "delete/2" do
     property "removes the given bounds from the map" do
-      forall {map, map_left..map_right, {left, right} = bounds} <- interval_map_and_random_bounds() do
+      forall {map, map_left..map_right//1, {left, right} = bounds} <- interval_map_and_random_bounds() do
         deleted_map = IntervalMap.delete(map, bounds)
 
         left_outside_keys =
@@ -190,7 +190,7 @@ defmodule IntervalMapTest do
 
   describe "range/1" do
     property "returns the leftmost and rightmost members of the map" do
-      forall {map, left..right} <- contiguous_interval_map() do
+      forall {map, left..right//1} <- contiguous_interval_map() do
         %Interval{left: left, right: right} == IntervalMap.range(map)
       end
     end
