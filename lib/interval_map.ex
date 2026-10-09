@@ -14,19 +14,19 @@ defmodule IntervalMap do
   alias IntervalMap.Interval
   import IntervalMap.Interval, only: [in_interval: 3]
 
-  defstruct tree: :gb_trees.empty()
+  defstruct [tree: :gb_trees.empty()]
+
+  @type bound :: any()
+  @type bounds :: {bound(), bound()}
+  @type key :: bound()
+  @type value :: any()
 
   @type t :: %__MODULE__{
-    tree: :gb_trees.tree(bound, Interval.t)
+    tree: :gb_trees.tree(bound(), Interval.t())
   }
 
-  @type bound :: any
-  @type bounds :: {bound, bound}
-  @type key :: bound
-  @type value :: any
-
   @doc "Creates a new Interval Map"
-  @spec new :: t
+  @spec new() :: t()
   def new do
     %__MODULE__{}
   end
@@ -34,49 +34,39 @@ defmodule IntervalMap do
   @doc """
   Puts the given interval into the map, specified by the bounds `left` and `right``, and an optional value to store with the interval.
   """
-  @spec put(t, bounds, value) :: t | {:error, OverlappingIntervalsError.t() | InvalidIntervalError.t()}
+  @spec put(t(), bounds() | Interval.t(), value()) :: t() | {:error, OverlappingIntervalsError.t() | InvalidIntervalError.t()}
   def put(map, bounds, value \\ nil)
 
   def put(%__MODULE__{} = map, %Interval{left: left, right: right}, value), do: put(map, {left, right}, value)
 
   def put(%__MODULE__{tree: tree} = map, {left, right}, value) when left < right do
+    result =
+      case get_from_tree(tree, left) do
+        :not_found ->
+          :not_found
+
+        # we found an interval that ends exactly where our new interval starts (due to the fact that we store the `right` interval bounds)
+        # so we need to get the next interval to see if it overlaps with our requested interval
+        {%Interval{right: ^left}, iterator} ->
+          case next(iterator) do
+            {found, _iterator} ->
+              found
+
+            :not_found ->
+              :not_found
+          end
+
+        {found, _iterator} ->
+          found
+      end
+
     interval = %Interval{left: left, right: right, value: value}
 
-    case get_from_tree(tree, left) do
-      :not_found ->
-        :ok
-
-      # we found an interval that ends exactly where our new interval starts (due to the fact that we store the `right` interval bounds)
-      # so we need to get the next interval to see if it overlaps with our requested interval
-      {%Interval{right: found_right}, iterator} when found_right == left ->
-        case next(iterator) do
-          {found, _iterator} ->
-            found
-          :not_found ->
-            :ok
-        end
-
-      {found, _iterator} ->
-        found
+    if result == :not_found or not intervals_overlap?(interval, result) do
+      %__MODULE__{map | tree: put_into_tree(tree, interval)}
+    else
+      {:error, OverlappingIntervalsError.exception(requested: interval, existing: result)}
     end
-    |> case do
-         :ok ->
-           :ok
-
-         found ->
-           if intervals_overlap?(interval, found) do
-             {:error, OverlappingIntervalsError.exception(requested: interval, existing: found)}
-           else
-             :ok
-           end
-       end
-    |> case do
-         :ok ->
-           %__MODULE__{map | tree: put_into_tree(tree, interval)}
-
-         error ->
-           error
-       end
   end
 
   def put(_map, bounds, _value), do: {:error, InvalidIntervalError.exception(bounds)}
@@ -85,7 +75,7 @@ defmodule IntervalMap do
   @doc """
   Gets the interval in which the provided key resides.
   """
-  @spec get(t, key) :: Interval.t() | :not_found
+  @spec get(t(), key()) :: Interval.t() | :not_found
   def get(%__MODULE__{tree: tree}, key) do
     case get_from_tree(tree, key) do
       {%Interval{left: left, right: right} = interval, _iterator} when in_interval(key, left, right) ->
@@ -99,7 +89,7 @@ defmodule IntervalMap do
   @doc """
   Gets the value from the interval in which the provided key resides.
   """
-  @spec get_value(t, key) :: {:value, value} | :not_found
+  @spec get_value(t(), key()) :: {:value, value()} | :not_found
   def get_value(%__MODULE__{} = map, key) do
     case get(map, key) do
       %Interval{value: value} ->
@@ -113,7 +103,7 @@ defmodule IntervalMap do
   @doc """
   Indicates if the given key falls into one of the map's intervals.
   """
-  @spec key_member?(t, key) :: boolean()
+  @spec key_member?(t(), key()) :: boolean()
   def key_member?(%__MODULE__{} = map, key) do
     case get(map, key) do
       %Interval{} ->
@@ -127,16 +117,11 @@ defmodule IntervalMap do
   @doc """
   Indicates if the given bounds fall within a single interval.
   """
-  @spec bounds_member?(t, bounds) :: boolean()
+  @spec bounds_member?(t(), bounds()) :: boolean()
   def bounds_member?(%__MODULE__{} = map, {left, right}) do
-    with %Interval{} = left_interval <- get(map, left),
-         %Interval{} = right_interval <- get(map, right) do
+    left_interval = get(map, left)
 
-      left_interval == right_interval
-    else
-      _ ->
-        false
-    end
+    left_interval != :not_found && left_interval == get(map, right)
   end
 
   @doc """
@@ -144,7 +129,7 @@ defmodule IntervalMap do
 
   O(n) at the moment, but could be made O(log(n)) for cases that only involve one or fewer intervals
   """
-  @spec delete(t, bounds_or_interval :: bounds | Interval.t()) :: t
+  @spec delete(t(), bounds_or_interval :: bounds() | Interval.t()) :: t()
   def delete(%__MODULE__{} = map, %Interval{left: left, right: right}), do: delete(map, {left, right})
 
   def delete(%__MODULE__{tree: tree} = map, {left, right} = bounds) when left < right do
@@ -161,7 +146,7 @@ defmodule IntervalMap do
   @doc """
   Returns an in-order list of intervals in the provided map.
   """
-  @spec to_list(t) :: [Interval.t()]
+  @spec to_list(t()) :: [Interval.t()]
   def to_list(%__MODULE__{tree: tree}) do
     :gb_trees.values(tree)
   end
@@ -171,7 +156,7 @@ defmodule IntervalMap do
 
   Remember, intervals are "left open, right closed".
   """
-  @spec range(t) :: Interval.t()
+  @spec range(t()) :: Interval.t()
   def range(%__MODULE__{} = map) do
     intervals = to_list(map)
     %Interval{left: min} = Enum.min_by(intervals, fn %Interval{left: left} -> left end)
@@ -183,11 +168,11 @@ defmodule IntervalMap do
   @doc """
   Indicates if the given intervals form a continuous range (no gaps between any intervals)
   """
-  @spec contiguous?(t) :: boolean
+  @spec contiguous?(t()) :: boolean()
   def contiguous?(%__MODULE__{} = map) do
     map
-    |> to_list
-    |> do_contiguous?
+    |> to_list()
+    |> do_contiguous?()
   end
 
   defp do_contiguous?([_interval]), do: true
@@ -197,7 +182,7 @@ defmodule IntervalMap do
   defp get_from_tree(tree, key) do
     key
     |> :gb_trees.iterator_from(tree)
-    |> next
+    |> next()
   end
 
   defp next(iterator) do
@@ -282,14 +267,5 @@ defmodule IntervalMap do
     tree
     |> delete_from_tree(interval)
     |> put_into_tree(left_interval)
-  end
-
-  defp delete_bounds_from_single_interval(tree, interval, bounds) do
-    :gb_trees.values(tree)
-    |> IO.inspect
-    IO.inspect bounds
-    IO.inspect(interval, label: :FELL_THROUGH)
-    raise "shit"
-    tree
   end
 end

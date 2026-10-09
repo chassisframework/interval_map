@@ -4,9 +4,9 @@ defmodule IntervalMap.OverlappingIntervalsError do
   defexception [:message, :existing, :requested]
 
   @type t :: %__MODULE__{
-    message: String.t,
-    requested: Interval.t,
-    existing: Interval.t
+    message: String.t(),
+    requested: Interval.t(),
+    existing: Interval.t()
   }
 
   @impl true
@@ -19,12 +19,10 @@ end
 defmodule IntervalMap.InvalidIntervalError do
   defexception [:message, :left, :right]
 
-  @type bound :: IntervalMap.bound
-
   @type t :: %__MODULE__{
-    message: String.t,
-    left: bound,
-    right: bound
+    message: String.t(),
+    left: IntervalMap.bound(),
+    right: IntervalMap.bound()
   }
 
   @impl true
